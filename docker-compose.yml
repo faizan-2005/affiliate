@@ -1,0 +1,168 @@
+version: '3.8'
+
+services:
+  # MySQL Database Service
+  mysql:
+    image: mysql:8.0
+    container_name: affiliate_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-affiliate_db}
+      MYSQL_USER: ${DB_USER:-affiliate_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-affiliate_pass}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - affiliate_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis Cache & Queue Service
+  redis:
+    image: redis:7-alpine
+    container_name: affiliate_redis
+    restart: always
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - affiliate_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 10s
+      retries: 5
+
+  # PHP Application Service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: affiliate_app
+    restart: always
+    environment:
+      APP_NAME: ${APP_NAME:-Affiliate Platform}
+      APP_ENV: ${APP_ENV:-production}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-affiliate_db}
+      DB_USER: ${DB_USER:-affiliate_user}
+      DB_PASSWORD: ${DB_PASSWORD:-affiliate_pass}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - ./:/var/www/html
+      - ./storage/logs:/var/www/html/storage/logs
+      - ./storage/cache:/var/www/html/storage/cache
+      - ./storage/sessions:/var/www/html/storage/sessions
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - affiliate_network
+
+  # Background Worker - Fraud Detection
+  fraud_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: affiliate_fraud_worker
+    restart: always
+    command: php /var/www/html/workers/fraud_worker.php
+    environment:
+      APP_NAME: ${APP_NAME:-Affiliate Platform}
+      APP_ENV: ${APP_ENV:-production}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-affiliate_db}
+      DB_USER: ${DB_USER:-affiliate_user}
+      DB_PASSWORD: ${DB_PASSWORD:-affiliate_pass}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - ./:/var/www/html
+      - ./storage/logs:/var/www/html/storage/logs
+    depends_on:
+      - mysql
+      - redis
+      - app
+    networks:
+      - affiliate_network
+
+  # Background Worker - Stats Rollup
+  stats_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: affiliate_stats_worker
+    restart: always
+    command: php /var/www/html/workers/stats_worker.php
+    environment:
+      APP_NAME: ${APP_NAME:-Affiliate Platform}
+      APP_ENV: ${APP_ENV:-production}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-affiliate_db}
+      DB_USER: ${DB_USER:-affiliate_user}
+      DB_PASSWORD: ${DB_PASSWORD:-affiliate_pass}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - ./:/var/www/html
+      - ./storage/logs:/var/www/html/storage/logs
+    depends_on:
+      - mysql
+      - redis
+      - app
+    networks:
+      - affiliate_network
+
+  # Background Worker - Click Archival
+  archive_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: affiliate_archive_worker
+    restart: always
+    command: php /var/www/html/workers/archive_worker.php
+    environment:
+      APP_NAME: ${APP_NAME:-Affiliate Platform}
+      APP_ENV: ${APP_ENV:-production}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-affiliate_db}
+      DB_USER: ${DB_USER:-affiliate_user}
+      DB_PASSWORD: ${DB_PASSWORD:-affiliate_pass}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - ./:/var/www/html
+      - ./storage/logs:/var/www/html/storage/logs
+    depends_on:
+      - mysql
+      - redis
+      - app
+    networks:
+      - affiliate_network
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  affiliate_network:
+    driver: bridge
