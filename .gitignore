@@ -1,0 +1,39 @@
+# Affiliate Tracking Platform - .gitignore
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+vendor/
+node_modules/
+composer.lock
+
+# Logs
+storage/logs/*
+!storage/logs/.gitkeep
+storage/cache/*
+!storage/cache/.gitkeep
+storage/sessions/*
+!storage/sessions/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# System
+Thumbs.db
+*.tmp
+
+# Testing
+/coverage
+.phpunit.result.cache
+
+# Database
+*.sql.bak
+dumps/
