@@ -1,0 +1,53 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Deploy to server
+      env:
+        DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      run: |
+        if [ -z "$DEPLOY_KEY" ] || [ -z "$DEPLOY_HOST" ]; then
+          echo "Skipping deployment - secrets not configured"
+          exit 0
+        fi
+
+        mkdir -p ~/.ssh
+        echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+
+        ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          cd $DEPLOY_PATH
+          git pull origin main
+          docker-compose pull
+          docker-compose up -d
+          docker-compose exec -T app php database/migrations.php
+          docker-compose logs -f --tail=50
+        EOF
+
+    - name: Notify deployment
+      if: always()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const status = context.payload.workflow_run?.conclusion === 'success' ? '✅ Success' : '❌ Failed';
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `Deployment ${status}`
+          });
